@@ -27,7 +27,7 @@ class Chef
 
       include Knife::RackspaceBase
       include Chef::Knife::WinrmBase
-      
+
 
       deps do
         require 'fog'
@@ -129,6 +129,18 @@ class Chef
         :proc => Proc.new { |m| Chef::Config[:knife][:rackspace_metadata] = JSON.parse(m) },
         :default => ""
 
+      option :rackconnect_wait,
+        :long => "--rackconnect-wait",
+        :description => "Wait until the Rackconnect automation setup is complete before bootstrapping chef",
+        :boolean => true,
+        :default => false
+
+      option :rackspace_servicelevel_wait,
+        :long => "--rackspace-servicelevel-wait",
+        :description => "Wait until the Rackspace service level automation setup is complete before bootstrapping chef",
+        :boolean => true,
+        :default => false
+
       option :hint,
         :long => "--hint HINT_NAME[=HINT_FILE]",
         :description => "Specify Ohai Hint to be set on the bootstrap target.  Use multiple --hint options to specify multiple hints.",
@@ -157,7 +169,7 @@ class Chef
           Chef::Config[:knife][:rackspace_networks] ||= []
           (Chef::Config[:knife][:rackspace_networks] << name).uniq!
         }
-        
+
       option :bootstrap_protocol,
       :long => "--bootstrap-protocol protocol",
       :description => "Protocol to bootstrap Windows servers. options: winrm",
@@ -173,7 +185,7 @@ class Chef
       :long => "--bootstrap-proxy PROXY_URL",
       :description => "The proxy server for the node being bootstrapped",
       :proc => Proc.new { |v| Chef::Config[:knife][:bootstrap_proxy] = v }
-     
+
 
       def load_winrm_deps
         require 'winrm'
@@ -182,7 +194,7 @@ class Chef
         require 'chef/knife/core/windows_bootstrap_context'
         require 'chef/knife/winrm'
       end
-      
+
       def tcp_test_ssh(hostname)
         tcp_socket = TCPSocket.new(hostname, 22)
         readable = IO.select([tcp_socket], nil, nil, 5)
@@ -216,7 +228,7 @@ class Chef
         end
         [dest, src]
       end
-      
+
       def encode_file(file)
         begin
           filename = File.expand_path(file)
@@ -227,7 +239,7 @@ class Chef
         end
         Base64.encode64(content)
       end
-      
+
       def files
         return {} unless  Chef::Config[:knife][:file]
 
@@ -235,7 +247,7 @@ class Chef
         Chef::Config[:knife][:file].each do |arg|
           dest, src = parse_file_argument(arg)
           Chef::Log.debug("Inject file #{src} into #{dest}")
-          files << { 
+          files << {
             :path => dest,
             :contents => encode_file(src)
           }
@@ -244,7 +256,7 @@ class Chef
     end
 
 
-      
+
       def tcp_test_winrm(hostname, port)
         TCPSocket.new(hostname, port)
         return true
@@ -265,7 +277,7 @@ class Chef
         sleep 2
         false
       end
-      
+
 
       def run
         $stdout.sync = true
@@ -274,13 +286,16 @@ class Chef
           ui.error("You have not provided a valid image value.  Please note the short option for this value recently changed from '-i' to '-I'.")
           exit 1
         end
-        
+
         if locate_config_value(:bootstrap_protocol) == 'winrm'
           load_winrm_deps
         end
-        
+
         node_name = get_node_name(config[:chef_node_name] || config[:server_name])
         networks = get_networks(Chef::Config[:knife][:rackspace_networks])
+
+        rackconnect_wait = Chef::Config[:knife][:rackconnect_wait] || config[:rackconnect_wait]
+        rackspace_servicelevel_wait = Chef::Config[:knife][:rackspace_servicelevel_wait] || config[:rackspace_servicelevel_wait]
 
         server = connection.servers.new(
           :name => node_name,
@@ -299,14 +314,40 @@ class Chef
         msg_pair("Flavor", server.flavor.name)
         msg_pair("Image", server.image.name)
         msg_pair("Metadata", server.metadata)
+        msg_pair("RackConnect Wait", rackconnect_wait ? 'yes' : 'no')
+        msg_pair("ServiceLevel Wait", rackspace_servicelevel_wait ? 'yes' : 'no')
         if(networks && Chef::Config[:knife][:rackspace_networks])
           msg_pair("Networks", Chef::Config[:knife][:rackspace_networks].sort.join(', '))
         end
 
         print "\n#{ui.color("Waiting server", :magenta)}"
-        
-        server.wait_for(Integer(locate_config_value(:server_create_timeout))) { print "."; ready? }
+
         # wait for it to be ready to do stuff
+        begin
+          server.wait_for(1200) {
+            print ".";
+            Chef::Log.debug("#{progress}%")
+            if rackconnect_wait and rackspace_servicelevel_wait
+              Chef::Log.debug("rackconnect_automation_status: #{metadata.all['rackconnect_automation_status']}")
+              Chef::Log.debug("rax_service_level_automation: #{metadata.all['rax_service_level_automation']}")
+              ready? and metadata.all['rackconnect_automation_status'] == 'DEPLOYED' and metadata.all['rax_service_level_automation'] == 'Complete'
+            elsif rackconnect_wait
+              Chef::Log.debug("rackconnect_automation_status: #{metadata.all['rackconnect_automation_status']}")
+              ready? and metadata.all['rackconnect_automation_status'] == 'DEPLOYED'
+            elsif rackspace_servicelevel_wait
+              Chef::Log.debug("rax_service_level_automation: #{metadata.all['rax_service_level_automation']}")
+              ready? and metadata.all['rax_service_level_automation'] == 'Complete'
+            else
+              ready?
+            end
+          }
+        rescue Fog::Errors::TimeoutError
+          ui.error('Timeout waiting for the server to be created')
+          msg_pair('Progress', "#{server.progress}%")
+          msg_pair('rackconnect_automation_status', server.metadata.all['rackconnect_automation_status'])
+          msg_pair('rax_service_level_automation', server.metadata.all['rax_service_level_automation'])
+          Chef::Application.fatal! 'Server didn\'t finish on time'
+        end
 
         puts("\n")
 
@@ -364,7 +405,7 @@ class Chef
         bootstrap.config[:use_sudo] = true unless config[:ssh_user] == 'root'
         bootstrap_common_params(bootstrap, server)
       end
-      
+
       def bootstrap_common_params(bootstrap, server)
         bootstrap.config[:environment] = config[:environment]
         bootstrap.config[:run_list] = config[:run_list]
@@ -380,12 +421,12 @@ class Chef
         bootstrap.config[:first_boot_attributes] = config[:first_boot_attributes]
         bootstrap.config[:bootstrap_proxy] = locate_config_value(:bootstrap_proxy)
         bootstrap.config[:encrypted_data_bag_secret] = config[:encrypted_data_bag_secret]
-        bootstrap.config[:encrypted_data_bag_secret_file] = config[:encrypted_data_bag_secret_file]  
+        bootstrap.config[:encrypted_data_bag_secret_file] = config[:encrypted_data_bag_secret_file]
         Chef::Config[:knife][:hints] ||= {}
         Chef::Config[:knife][:hints]["rackspace"] ||= {}
         bootstrap
       end
-      
+
       def bootstrap_for_windows_node(server, bootstrap_ip_address)
         bootstrap = Chef::Knife::BootstrapWindowsWinrm.new
         bootstrap.name_args = [bootstrap_ip_address]
@@ -416,7 +457,7 @@ class Chef
           nets = []
         end
         available_networks = connection.networks.all
-        
+
         names.each do |name|
           net = available_networks.detect{|n| n.label == name || n.id == name}
           if(net)
