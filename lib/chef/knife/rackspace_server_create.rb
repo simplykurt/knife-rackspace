@@ -171,20 +171,26 @@ class Chef
         }
 
       option :bootstrap_protocol,
-      :long => "--bootstrap-protocol protocol",
-      :description => "Protocol to bootstrap Windows servers. options: winrm",
-      :default => nil
+        :long => "--bootstrap-protocol protocol",
+        :description => "Protocol to bootstrap Windows servers. options: winrm",
+        :default => nil
 
       option :server_create_timeout,
-      :long => "--server-create-timeout timeout",
-      :description => "How long to wait until the server is ready; default is 600 seconds",
-      :default => 600,
-      :proc => Proc.new { |v| Chef::Config[:knife][:server_create_timeouts] = v}
+        :long => "--server-create-timeout timeout",
+        :description => "How long to wait until the server is ready; default is 600 seconds",
+        :default => 600,
+        :proc => Proc.new { |v| Chef::Config[:knife][:server_create_timeouts] = v}
 
       option :bootstrap_proxy,
-      :long => "--bootstrap-proxy PROXY_URL",
-      :description => "The proxy server for the node being bootstrapped",
-      :proc => Proc.new { |v| Chef::Config[:knife][:bootstrap_proxy] = v }
+        :long => "--bootstrap-proxy PROXY_URL",
+        :description => "The proxy server for the node being bootstrapped",
+        :proc => Proc.new { |v| Chef::Config[:knife][:bootstrap_proxy] = v }
+
+      option :rackspace_disk_config,
+        :long => "--rackspace-disk-config DISKCONFIG",
+        :description => "Specify if want to manage your own disk partitioning scheme (AUTO or MANUAL), default is AUTO",
+        :proc => Proc.new { |k| Chef::Config[:knife][:rackspace_disk_config] = k },
+        :default => "AUTO"
 
 
       def load_winrm_deps
@@ -302,30 +308,29 @@ class Chef
           :image_id => Chef::Config[:knife][:image],
           :flavor_id => locate_config_value(:flavor),
           :metadata => Chef::Config[:knife][:rackspace_metadata],
+          :disk_config => Chef::Config[:knife][:rackspace_disk_config],
           :personality => files
         )
-        server.save(
-          :networks => networks
-        )
+
+        if version_one?
+          server.save
+        else
+          server.save(:networks => networks)
+        end
 
         msg_pair("Instance ID", server.id)
         msg_pair("Host ID", server.host_id)
         msg_pair("Name", server.name)
         msg_pair("Flavor", server.flavor.name)
         msg_pair("Image", server.image.name)
-        msg_pair("Metadata", server.metadata)
+        msg_pair("Metadata", server.metadata.all)
         msg_pair("RackConnect Wait", rackconnect_wait ? 'yes' : 'no')
         msg_pair("ServiceLevel Wait", rackspace_servicelevel_wait ? 'yes' : 'no')
-        if(networks && Chef::Config[:knife][:rackspace_networks])
-          msg_pair("Networks", Chef::Config[:knife][:rackspace_networks].sort.join(', '))
-        end
-
-        print "\n#{ui.color("Waiting server", :magenta)}"
 
         # wait for it to be ready to do stuff
         begin
-          server.wait_for(1200) {
-            print ".";
+          server.wait_for(1200) { 
+            print "."; 
             Chef::Log.debug("#{progress}%")
             if rackconnect_wait and rackspace_servicelevel_wait
               Chef::Log.debug("rackconnect_automation_status: #{metadata.all['rackconnect_automation_status']}")
@@ -348,6 +353,15 @@ class Chef
           msg_pair('rax_service_level_automation', server.metadata.all['rax_service_level_automation'])
           Chef::Application.fatal! 'Server didn\'t finish on time'
         end
+        msg_pair("Metadata", server.metadata)
+        if(networks && Chef::Config[:knife][:rackspace_networks])
+          msg_pair("Networks", Chef::Config[:knife][:rackspace_networks].sort.join(', '))
+        end
+
+        print "\n#{ui.color("Waiting server", :magenta)}"
+
+        server.wait_for(Integer(locate_config_value(:server_create_timeout))) { print "."; ready? }
+        # wait for it to be ready to do stuff
 
         puts("\n")
 
@@ -355,6 +369,10 @@ class Chef
         msg_pair("Public IP Address", public_ip(server))
         msg_pair("Private IP Address", private_ip(server))
         msg_pair("Password", server.password)
+        msg_pair("Metadata", server.metadata.all)
+
+        print "\n#{ui.color("Waiting for sshd", :magenta)}"
+
         #which IP address to bootstrap
         bootstrap_ip_address = public_ip(server)
         if config[:private_network]
