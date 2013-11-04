@@ -86,7 +86,7 @@ class Chef
         Chef::Log.debug("rackspace_auth_url #{auth_endpoint} (using)")
         Chef::Log.debug("rackspace_region #{Chef::Config[:knife][:rackspace_region]}")
         Chef::Log.debug("rackspace_region #{config[:rackspace_region]}")
-        
+
         if version_one?
           Chef::Log.debug("rackspace v1")
           region_warning_for_v1
@@ -104,7 +104,7 @@ class Chef
           end
         end
       end
-      
+
       def region_warning_for_v1
         if Chef::Config[:knife][:rackspace_region] || config[:rackspace_region]
           Chef::Log.warn("Ignoring the rackspace_region parameter as it is only supported for Next Gen Cloud Servers (v2)")
@@ -127,8 +127,8 @@ class Chef
           hash[:connection_options] = {:proxy => Chef::Config[:https_proxy] || Chef::Config[:http_proxy] }
         end
         Chef::Log.debug("using proxy #{hash[:connection_options][:proxy] || "<none>"} (config)")
-        Chef::Log.debug("ssl_verify_peer #{Chef::Config[:knife].include?(:ssl_verify_peer) ? Chef::Config[:knife][:ssl_verify_peer] : "<not specified>"} (config)")
-        hash[:connection_options][:ssl_verify_peer] = Chef::Config[:knife][:ssl_verify_peer] if Chef::Config[:knife].include?(:ssl_verify_peer)
+        Chef::Log.debug("ssl_verify_peer #{Chef::Config[:knife].has_key?(:ssl_verify_peer) ? Chef::Config[:knife][:ssl_verify_peer] : "<not specified>"} (config)")
+        hash[:connection_options][:ssl_verify_peer] = Chef::Config[:knife][:ssl_verify_peer] if Chef::Config[:knife].has_key?(:ssl_verify_peer)
 
         hash
       end
