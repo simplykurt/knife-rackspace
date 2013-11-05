@@ -64,9 +64,14 @@ class Chef
         :long => "--node-name NAME",
         :description => "The Chef node name for your new node"
 
+      option :bootstrap_network,
+        :long => "--bootstrap-network LABEL",
+        :description => "Use IP address on this network for bootstrap",
+        :default => 'public'
+
       option :private_network,
         :long => "--private-network",
-        :description => "Use the private IP for bootstrapping rather than the public IP",
+        :description => "Equivalent to --bootstrap-network private",
         :boolean => true,
         :default => false
 
@@ -80,6 +85,13 @@ class Chef
         :short => "-P PASSWORD",
         :long => "--ssh-password PASSWORD",
         :description => "The ssh password"
+
+      option :ssh_port,
+        :short => "-p PORT",
+        :long => "--ssh-port PORT",
+        :description => "The ssh port",
+        :default => "22",
+        :proc => Proc.new { |key| Chef::Config[:knife][:ssh_port] = key }
 
       option :identity_file,
         :short => "-i IDENTITY_FILE",
@@ -99,8 +111,7 @@ class Chef
         :short => "-d DISTRO",
         :long => "--distro DISTRO",
         :description => "Bootstrap a distro using a template; default is 'chef-full'",
-        :proc => Proc.new { |d| Chef::Config[:knife][:distro] = d },
-        :default => "chef-full"
+        :proc => Proc.new { |d| Chef::Config[:knife][:distro] = d }
 
       option :template_file,
         :long => "--template-file TEMPLATE",
@@ -202,7 +213,8 @@ class Chef
       end
 
       def tcp_test_ssh(hostname)
-        tcp_socket = TCPSocket.new(hostname, 22)
+        ssh_port = Chef::Config[:knife][:ssh_port] || config[:ssh_port]
+        tcp_socket = TCPSocket.new(hostname, ssh_port)
         readable = IO.select([tcp_socket], nil, nil, 5)
         if readable
           Chef::Log.debug("sshd accepting connections on #{hostname}, banner is #{tcp_socket.gets}")
@@ -288,6 +300,9 @@ class Chef
       def run
         $stdout.sync = true
 
+        # Maybe deprecate this option at some point
+        config[:bootstrap_network] = 'private' if config[:private_network]
+
         unless Chef::Config[:knife][:image]
           ui.error("You have not provided a valid image value.  Please note the short option for this value recently changed from '-i' to '-I'.")
           exit 1
@@ -366,18 +381,12 @@ class Chef
         puts("\n")
 
         msg_pair("Public DNS Name", public_dns_name(server))
-        msg_pair("Public IP Address", public_ip(server))
-        msg_pair("Private IP Address", private_ip(server))
+        msg_pair("Public IP Address", ip_address(server, 'public'))
+        msg_pair("Private IP Address", ip_address(server, 'private'))
         msg_pair("Password", server.password)
         msg_pair("Metadata", server.metadata.all)
 
-        print "\n#{ui.color("Waiting for sshd", :magenta)}"
-
-        #which IP address to bootstrap
-        bootstrap_ip_address = public_ip(server)
-        if config[:private_network]
-          bootstrap_ip_address = private_ip(server)
-        end
+        bootstrap_ip_address = ip_address(server, config[:bootstrap_network])
         Chef::Log.debug("Bootstrap IP Address #{bootstrap_ip_address}")
         if bootstrap_ip_address.nil?
           ui.error("No IP address available for bootstrapping.")
@@ -405,8 +414,8 @@ class Chef
         msg_pair("Image", server.image.name)
         msg_pair("Metadata", server.metadata)
         msg_pair("Public DNS Name", public_dns_name(server))
-        msg_pair("Public IP Address", public_ip(server))
-        msg_pair("Private IP Address", private_ip(server))
+        msg_pair("Public IP Address", ip_address(server, 'public'))
+        msg_pair("Private IP Address", ip_address(server, 'private'))
         msg_pair("Password", server.password)
         msg_pair("Environment", config[:environment] || '_default')
         msg_pair("Run List", config[:run_list].join(', '))
@@ -417,10 +426,12 @@ class Chef
         bootstrap.name_args = [bootstrap_ip_address]
         bootstrap.config[:ssh_user] = config[:ssh_user] || "root"
         bootstrap.config[:ssh_password] = server.password
+        bootstrap.config[:ssh_port] = Chef::Config[:knife][:ssh_port] || config[:ssh_port]
         bootstrap.config[:identity_file] = config[:identity_file]
         bootstrap.config[:host_key_verify] = config[:host_key_verify]
         # bootstrap will run as root...sudo (by default) also messes up Ohai on CentOS boxes
         bootstrap.config[:use_sudo] = true unless config[:ssh_user] == 'root'
+        bootstrap.config[:distro] = locate_config_value(:distro)  || 'chef-full'
         bootstrap_common_params(bootstrap, server)
       end
 
@@ -434,7 +445,6 @@ class Chef
         end
         bootstrap.config[:prerelease] = config[:prerelease]
         bootstrap.config[:bootstrap_version] = locate_config_value(:bootstrap_version)
-        bootstrap.config[:distro] = locate_config_value(:distro)
         bootstrap.config[:template_file] = locate_config_value(:template_file)
         bootstrap.config[:first_boot_attributes] = config[:first_boot_attributes]
         bootstrap.config[:bootstrap_proxy] = locate_config_value(:bootstrap_proxy)
@@ -452,6 +462,7 @@ class Chef
         bootstrap.config[:winrm_password] = locate_config_value(:winrm_password) || server.password
         bootstrap.config[:winrm_transport] = locate_config_value(:winrm_transport)
         bootstrap.config[:winrm_port] = locate_config_value(:winrm_port)
+        bootstrap.config[:distro] = locate_config_value(:distro)  || 'windows-chef-client-msi'
         bootstrap_common_params(bootstrap, server)
       end
 
