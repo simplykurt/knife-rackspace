@@ -86,7 +86,7 @@ class Chef
         Chef::Log.debug("rackspace_auth_url #{auth_endpoint} (using)")
         Chef::Log.debug("rackspace_region #{Chef::Config[:knife][:rackspace_region]}")
         Chef::Log.debug("rackspace_region #{config[:rackspace_region]}")
-        
+
         if version_one?
           Chef::Log.debug("rackspace v1")
           region_warning_for_v1
@@ -104,7 +104,7 @@ class Chef
           end
         end
       end
-      
+
       def region_warning_for_v1
         if Chef::Config[:knife][:rackspace_region] || config[:rackspace_region]
           Chef::Log.warn("Ignoring the rackspace_region parameter as it is only supported for Next Gen Cloud Servers (v2)")
@@ -127,8 +127,8 @@ class Chef
           hash[:connection_options] = {:proxy => Chef::Config[:https_proxy] || Chef::Config[:http_proxy] }
         end
         Chef::Log.debug("using proxy #{hash[:connection_options][:proxy] || "<none>"} (config)")
-        Chef::Log.debug("ssl_verify_peer #{Chef::Config[:knife].include?(:ssl_verify_peer) ? Chef::Config[:knife][:ssl_verify_peer] : "<not specified>"} (config)")
-        hash[:connection_options][:ssl_verify_peer] = Chef::Config[:knife][:ssl_verify_peer] if Chef::Config[:knife].include?(:ssl_verify_peer)
+        Chef::Log.debug("ssl_verify_peer #{Chef::Config[:knife].has_key?(:ssl_verify_peer) ? Chef::Config[:knife][:ssl_verify_peer] : "<not specified>"} (config)")
+        hash[:connection_options][:ssl_verify_peer] = Chef::Config[:knife][:ssl_verify_peer] if Chef::Config[:knife].has_key?(:ssl_verify_peer)
 
         hash
       end
@@ -150,29 +150,29 @@ class Chef
         end
       end
 
-      def public_ip(server)
+      def ip_address(server, network='public')
         if version_one?
-          v1_public_ip(server)
+          case network
+          when 'public'; v1_public_ip(server)
+          when 'private'; v1_private_ip(server)
+          else raise NotImplementedError
+          end
         else
-          v2_access_ip(server) ? v2_access_ip(server) : v2_public_ip(server)
-        end
-      end
-
-      def private_ip(server)
-        if version_one?
-          v1_private_ip(server)
-        else
-          v2_private_ip(server)
+          if network == 'public' && v2_access_ip(server) != ""
+            v2_access_ip(server)
+          else
+            v2_ip_address(server, network)
+          end
         end
       end
 
       def public_dns_name(server)
-        ip_address = public_ip(server)
-
-        @public_dns_name ||= begin
-          Resolv.getname(ip_address)
-        rescue
-          "#{ip_address.gsub('.','-')}.static.cloud-ips.com" if ip_address
+        if public_ip_address = ip_address(server, 'public')
+          @public_dns_name ||= begin
+            Resolv.getname(public_ip_address)
+          rescue
+            "#{public_ip_address.gsub('.','-')}.static.cloud-ips.com"
+          end
         end
       end
 
@@ -195,14 +195,9 @@ class Chef
         server.addresses["private"].first == nil ? "" : server.addresses["private"].first
       end
 
-      def v2_public_ip(server)
-        public_ips = server.addresses["public"]
-        extract_ipv4_address(public_ips) if public_ips
-      end
-
-      def v2_private_ip(server)
-        private_ips = server.addresses["private"]
-        extract_ipv4_address(private_ips) if private_ips
+      def v2_ip_address(server, network)
+        network_ips = server.addresses[network]
+        extract_ipv4_address(network_ips) if network_ips
       end
 
       def v2_access_ip(server)
