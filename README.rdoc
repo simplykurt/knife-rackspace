@@ -59,7 +59,7 @@ If you are behind a proxy you can specify it in the knife.rb file as follows:
 
     https_proxy https://PROXY_IP_ADDRESS:PORT
 
-SSL certificate verification can be disabled by include the following in your knife.rb file:
+SSL certificate verification can be disabled by including the following in your knife.rb file:
 
     knife[:ssl_verify_peer] = false
 
@@ -76,9 +76,9 @@ This plugin provides the following Knife subcommands. Specific command options c
 
 == knife rackspace server create
 
-Provisions a new server in the Rackspace Cloud and then perform a Chef bootstrap (using the SSH protocol). The goal of the bootstrap is to get Chef installed on the target system so it can run Chef Client with a Chef Server. The main assumption is a baseline OS installation exists (provided by the provisioning). It is primarily intended for Chef Client systems that talk to a Chef server. By default the server is bootstrapped using the {chef-full}[https://github.com/opscode/chef/blob/master/chef/lib/chef/knife/bootstrap/chef-full.erb] template. This can be overridden using the <tt>-d</tt> or <tt>--template-file</tt> command options.
+Provisions a new server in the Rackspace Cloud and then performs a Chef bootstrap (using the SSH protocol). The goal of the bootstrap is to get Chef installed on the target system so it can run Chef Client with a Chef Server. The main assumption is a baseline OS installation exists (provided by the provisioning). It is primarily intended for Chef Client systems that talk to a Chef server. By default the server is bootstrapped using the {chef-full}[https://github.com/opscode/chef/blob/master/chef/lib/chef/knife/bootstrap/chef-full.erb] template. This can be overridden using the <tt>-d</tt> or <tt>--template-file</tt> command options.
 
-If no name is provided, nodes created with  the v1 API are named after their instance ID, with the v2 API they are given a random 'rs-XXXXXXXXX' name.
+If no name is provided, nodes created with the v1 API are named after their instance ID, with the v2 API they are given a random 'rs-XXXXXXXXX' name.
 
 Files can be injected onto the provisioned system using the <tt>--file</tt> switch. For example to inject <tt>my_script.sh</tt> into <tt>/root/initialize.sh</tt> you would use the following switch
 
@@ -86,7 +86,7 @@ Files can be injected onto the provisioned system using the <tt>--file</tt> swit
 
 Note: You can only inject text files and the maximum destination path is 255 characters.
 
-You may specify if want to manage your disk partitioning scheme with the <tt>--rackspace-disk-config DISKCONFIG</tt> option. If you bootstrap a `v2` node and leave this set to the default "AUTO", larger nodes take longer to bootstrap as it grows the disk from 10G to fill the full amount of local disk provided. This option allows you to pass "MANUAL" - which give you a node (in 1/2 to 1/4 of the time) and lets you manage ignoring, or formatting the rest of the disk on your own.
+You may specify if want to manage your disk partitioning scheme with the <tt>--rackspace-disk-config DISKCONFIG</tt> option. If you bootstrap a `v2` node and leave this set to the default "AUTO", larger nodes take longer to bootstrap as it grows the disk from 10G to fill the full amount of local disk provided. This option allows you to pass "MANUAL" - which gives you a node (in 1/2 to 1/4 of the time) and lets you manage ignoring, or formatting the rest of the disk on your own.
 
 http://docs.openstack.org/essex/openstack-compute/starter/content/Launch_and_manage_instances-d1e1885.html
 
